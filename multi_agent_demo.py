@@ -59,12 +59,67 @@ def run_multi_agent_demo():
         print(f"  Agent {i} ({MODEL_TYPES[i]}) Map: {allocation_maps[i]}")
         
     # 4. Load Models (Instantiate Real Architectures from split_inference)
-    print("\n[Stage 3] Preparing PyTorch Models for Split Inference...")
-    # Instantiate the 3 models as updated in split_inference/cnn_model.py
+    print("\n[Stage 3] Preparing PyTorch Models with Trained Weights...")
     models = [SimpleCNN(), DeepCNN(), MiniResNet()]
+    weight_paths = [
+        "split_inference/mnist_simplecnn.pth",
+        "split_inference/mnist_deepcnn.pth",
+        "split_inference/mnist_miniresnet.pth"
+    ]
     
+    # Mapping old state_dict keys to new structure
+    mappings = [
+        # SimpleCNN
+        {
+            "conv1.weight": "layers.0.0.weight", "conv1.bias": "layers.0.0.bias",
+            "conv2.weight": "layers.1.0.weight", "conv2.bias": "layers.1.0.bias",
+            "fc1.weight": "layers.3.0.weight", "fc1.bias": "layers.3.0.bias",
+            "fc2.weight": "layers.4.weight", "fc2.bias": "layers.4.bias"
+        },
+        # DeepCNN
+        {
+            "conv1.weight": "layers.0.0.weight", "conv1.bias": "layers.0.0.bias",
+            "conv2.weight": "layers.0.2.weight", "conv2.bias": "layers.0.2.bias",
+            "conv3.weight": "layers.1.0.weight", "conv3.bias": "layers.1.0.bias",
+            "conv4.weight": "layers.1.2.weight", "conv4.bias": "layers.1.2.bias",
+            "fc1.weight": "layers.3.0.weight", "fc1.bias": "layers.3.0.bias",
+            "fc2.weight": "layers.4.weight", "fc2.bias": "layers.4.bias"
+        },
+        # MiniResNet
+        {
+            "conv1.weight": "layers.0.0.weight", "conv1.bias": "layers.0.0.bias",
+            "conv2.weight": "layers.0.2.weight", "conv2.bias": "layers.0.2.bias",
+            "conv3.weight": "layers.1.conv.weight", "conv3.bias": "layers.1.conv.bias",
+            "fc1.weight": "layers.3.0.weight", "fc1.bias": "layers.3.0.bias",
+            "fc2.weight": "layers.4.weight", "fc2.bias": "layers.4.bias"
+        }
+    ]
+    
+    for i, path in enumerate(weight_paths):
+        if os.path.exists(path):
+            try:
+                state_dict = torch.load(path, map_location=torch.device('cpu'))
+                new_state_dict = {}
+                mapping = mappings[i]
+                for old_key, val in state_dict.items():
+                    if old_key in mapping:
+                        new_state_dict[mapping[old_key]] = val
+                    else:
+                        new_state_dict[old_key] = val
+                
+                models[i].load_state_dict(new_state_dict, strict=False)
+                print(f"  Weights for {MODEL_TYPES[i]} loaded and remapped from {path}")
+            except Exception as e:
+                print(f"  Warning: Could not load weights for {MODEL_TYPES[i]}: {e}")
+        else:
+            print(f"  Warning: Weight file {path} not found.")
+
     # 5. Execute Multi-Task Simulation
     print("\n[Stage 4] Running Distributed Multi-Task Inference...")
+    
+    # Use a consistent dummy input
+    torch.manual_seed(42)
+    shared_dummy_input = torch.randn(1, 1, 28, 28)
     
     for i, m_type in enumerate(MODEL_TYPES):
         print(f"\n--- Task {i} ({m_type}) ---")
@@ -72,29 +127,20 @@ def run_multi_agent_demo():
         model = models[i]
         print(f"  Allocation: {map_}")
         
-        # Check if map length matches model depth
         if len(map_) != len(model.layers):
             print(f"  [Warning] Map length ({len(map_)}) != Model layers ({len(model.layers)}).")
-            # In a robust system, we would handle padding/truncation here.
         
-        # All models now follow the same execution pattern via MultiTaskRunner
         print(f"  Executing {m_type} Structure (Split Inference)")
         runner = MultiTaskRunner(model)
         
-        # Standard input for MNIST-style tasks
-        dummy_input = torch.randn(1, 1, 28, 28)
-
         try:
-            output = runner.run(dummy_input, map_)
+            output = runner.run(shared_dummy_input, map_)
             pred = torch.argmax(output).item()
-            print(f"  Result (Random Weights): Predicted Class {pred}")
+            print(f"  Result: Predicted Class {pred}")
         except Exception as e:
             print(f"  Execution Failed for {m_type}: {e}")
 
     print("\n=== Demo Complete ===")
-
-if __name__ == "__main__":
-    run_multi_agent_demo()
 
 if __name__ == "__main__":
     run_multi_agent_demo()
