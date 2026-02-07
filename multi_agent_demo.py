@@ -6,6 +6,9 @@ from rl_pdnn.agent import DQNAgent
 from rl_pdnn.multi_agent_env import MultiAgentIoTEnv
 import numpy as np
 import os
+from PIL import Image
+# removed torchvision dependency
+import matplotlib.pyplot as plt
 
 def run_multi_agent_demo():
     print("=== Multi-Agent RL-PDNN Demo (SimpleCNN, DeepCNN, MiniResNet) ===")
@@ -117,9 +120,34 @@ def run_multi_agent_demo():
     # 5. Execute Multi-Task Simulation
     print("\n[Stage 4] Running Distributed Multi-Task Inference...")
     
-    # Use a consistent dummy input
-    torch.manual_seed(42)
-    shared_dummy_input = torch.randn(1, 1, 28, 28)
+    # --- Input Preparation ---
+    # Testing with the processed image from the results folder as requested
+    fixed_image_path = "results/processed_test_input.png"
+    
+    if os.path.exists(fixed_image_path):
+        print(f"\n[Info] Loading real test image: {fixed_image_path}")
+        # Load image, convert to grayscale, resize to 28x28
+        image = Image.open(fixed_image_path).convert('L').resize((28, 28))
+        
+        # Convert to numpy and normalize (to match transforms.ToTensor() and transforms.Normalize)
+        img_np = np.array(image).astype(np.float32) / 255.0  # [0, 1] range
+        img_np = (img_np - 0.1307) / 0.3081  # MNIST mean/std
+        
+        # Convert to torch tensor [Batch, Channel, H, W]
+        shared_dummy_input = torch.from_numpy(img_np).unsqueeze(0).unsqueeze(0)
+    else:
+        print("\n[Info] Real test image not found. Using random dummy input.")
+        torch.manual_seed(42)
+        shared_dummy_input = torch.randn(1, 1, 28, 28)
+    
+    # Save the processed image to results for verification
+    if not os.path.exists("results"):
+        os.makedirs("results")
+    
+    # Reshape and normalize for saving (reverse normalization visual-only)
+    img_np = shared_dummy_input.squeeze().detach().numpy()
+    plt.imsave("results/processed_test_input.png", img_np, cmap='gray')
+    print(f"  Processed image saved to results/processed_test_input.png")
     
     for i, m_type in enumerate(MODEL_TYPES):
         print(f"\n--- Task {i} ({m_type}) ---")
